@@ -7,6 +7,7 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "driver/ledc.h"
+#include <math.h>
 
 #define ADC_UNIT ADC_UNIT_1
 #define ADC_CHANNEL ADC_CHANNEL_4 // GPIO #5
@@ -21,15 +22,15 @@
 
 #define SERVO_MAX_DUTY (1u<<14)
 #define SERVO_PERIOD_US 20000u
-
 #define SERVO_MIN_US 420
 #define SERVO_MAX_US 2400
-
 #define SERVO_MIN_ANGLE 0.0f
-#define SERVO_MAX_ANGLE 360.0f
+#define SERVO_MAX_ANGLE 180.0f
 
 #define POTEN_MIN 0
 #define POTEN_MAX 3600
+#define POTEN_MAX_ANGLE 300.0f
+#define ADC_MAX_RAW 4095.0f
 
 typedef struct
 {
@@ -68,8 +69,8 @@ void adc_config(adc_component_config_t* adc)
 
 static void servo_set_us(uint32_t us)
 {
-    // if (us > 2600) us = 2600;
-    // if (us < 400) us = 400;
+    if (us > SERVO_MAX_US) us = SERVO_MAX_US;
+    if (us < SERVO_MIN_US) us = SERVO_MIN_US;
 
     uint32_t duty = (uint32_t)(us * SERVO_MAX_DUTY / SERVO_PERIOD_US);
 
@@ -79,9 +80,6 @@ static void servo_set_us(uint32_t us)
 
 static void servo_set_angle(float deg)
 {
-    if (deg > 180.0f) deg = 180.0f;
-    if (deg < 0.0f) deg = 0.0f;
-
     uint32_t us = SERVO_MIN_US + (uint32_t)((deg/180.0f) * (SERVO_MAX_US - SERVO_MIN_US));
 
     servo_set_us(us);
@@ -118,42 +116,25 @@ void app_main()
     };
     ledc_channel_config(&servo_channel_config);
 
-    // servo_set_us(400);
-    servo_set_angle(90.0f);
-
     while(1)
     {
-        // servo_set_angle(0.0f);
-        // vTaskDelay(pdMS_TO_TICKS(1000));
-
-        // servo_set_angle(180.0f);
-        // vTaskDelay(pdMS_TO_TICKS(1000));
-
-        // TODO: calculate this to ANGLE !!!!
-        // fine overlap like 400-2400 values
-        // make it to use set angle
         adc_oneshot_read(potentiometer.oneshot_handle, potentiometer.channel, &potentiometer.raw);
-        float deg = SERVO_MIN_ANGLE + ((float)potentiometer.raw * (SERVO_MAX_ANGLE - SERVO_MIN_ANGLE) / 4095.0f); 
-        // uint32_t us = POTEN_MIN + ((uint32_t)potentiometer.raw * (POTEN_MAX - POTEN_MIN) / 4095); 
-        // servo_set_us(potentiometer.raw);
+
+        float deg_raw = (float)potentiometer.raw * POTEN_MAX_ANGLE / ADC_MAX_RAW;
+        float deg = deg_raw;
+        if (deg > SERVO_MAX_ANGLE) deg = SERVO_MAX_ANGLE;
+        if (deg < SERVO_MIN_ANGLE) deg = SERVO_MIN_ANGLE;
+
         servo_set_angle(deg);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        ESP_LOGI("check", "deg = %f ; raw = %d", deg, potentiometer.raw);
-        // ESP_LOGI("check", " us = %d; raw = %d", us, potentiometer.raw);
 
-        // CHAOTIC US-BASED ROTATING
-        // for (size_t i = 0; i <= 2600; i += 100)
-        // {
-        //     servo_set_us(i);
-        //     vTaskDelay(pdMS_TO_TICKS(150));
-        // }
-        // vTaskDelay(pdMS_TO_TICKS(1000));
+        if (deg_raw > SERVO_MAX_ANGLE)
+        {
+            ESP_LOGI("SAMPLE", "angle (absolute) = %.1f deg; angle (diff) = %.1f; raw = %d", deg, deg_raw - SERVO_MAX_ANGLE, potentiometer.raw);
+        } else 
+        {
+            ESP_LOGI("SAMPLE", "angle (absolute) = %.1f deg; angle (diff) = NULL; raw = %d", deg, potentiometer.raw);
+        }
 
-        // for (size_t i = 2600; i >= 400; i -= 100)
-        // {
-        //     servo_set_us(i);
-        //     vTaskDelay(pdMS_TO_TICKS(150));
-        // }
-        // vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
